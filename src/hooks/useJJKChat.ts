@@ -23,10 +23,6 @@ export function useJJKChat(options: UseJJKChatOptions = {}) {
   const generateVoice = useCallback(async (text: string, isRetry: boolean = false) => {
     if (!text) return
     
-    // Check cache first (per D-03)
-    // Note: getCachedAudio will be implemented in Plan 03
-    // For now, we proceed directly to API call
-    
     setIsGeneratingVoice(true)
     setVoiceError(null)
     
@@ -86,10 +82,8 @@ export function useJJKChat(options: UseJJKChatOptions = {}) {
       lastMessageContent.current = content
       
       // Per D-02: Sequential flow - generate voice after text completes
-      // Voice generation will be fully integrated in Plan 03
       if (role === 'assistant' && content) {
-        // Note: Voice generation disabled until Plan 03
-        // await generateVoice(content)
+        await generateVoice(content)
       }
       
       if (options.onFinish) {

@@ -4,10 +4,24 @@ import { useJJKChat } from '@/hooks/useJJKChat'
 import { InputForm } from './InputForm'
 import { MessageList } from './MessageList'
 import { LoadingIndicator } from './LoadingIndicator'
+import { AudioPlayer } from '@/components/audio/AudioPlayer'
+import { VoiceStatus } from '@/components/audio/VoiceStatus'
 import type { Message } from '@/types/chat'
 
 export function ChatContainer() {
-  const { messages, input, setInput, handleSubmit, isLoading, status } = useJJKChat({
+  const { 
+    messages, 
+    input, 
+    setInput, 
+    handleSubmit, 
+    isLoading, 
+    status,
+    audioUrl,
+    isGeneratingVoice,
+    voiceError,
+    clearError,
+    retryVoice,
+  } = useJJKChat({
     onError: (error) => {
       console.error('[ChatContainer] Chat error:', error)
     },
@@ -17,8 +31,11 @@ export function ChatContainer() {
   })
 
   // Determine what to show in the main area
+  const showEmpty = !isGeneratingVoice && messages.length === 0
   const showLoading = status === 'submitting'
-  const showEmpty = !showLoading && messages.length === 0
+  const showVoiceLoading = status === 'generating_voice'
+  const showVoiceError = voiceError !== null
+  const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop()
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -32,17 +49,51 @@ export function ChatContainer() {
       {/* Main content area */}
       <main className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto">
+          {/* Empty state */}
           {showEmpty && (
             <MessageList messages={[]} />
           )}
           
-          {!showEmpty && !showLoading && (
-            <MessageList 
-              messages={messages as Message[]}
-              isStreaming={status === 'streaming'}
-            />
+          {/* Messages */}
+          {!showEmpty && !showLoading && messages.length > 0 && (
+            <>
+              <MessageList 
+                messages={messages as Message[]}
+                isStreaming={status === 'streaming'}
+              />
+              
+              {/* Voice loading indicator */}
+              {showVoiceLoading && (
+                <VoiceStatus state="generating" className="mt-4" />
+              )}
+              
+              {/* Voice error with retry */}
+              {showVoiceError && (
+                <VoiceStatus 
+                  state="error" 
+                  errorMessage={voiceError}
+                  onRetry={() => {
+                    clearError()
+                    retryVoice()
+                  }}
+                  className="mt-4"
+                />
+              )}
+              
+              {/* Audio player when ready */}
+              {audioUrl && lastAssistantMessage && !showVoiceLoading && !showVoiceError && (
+                <div className="mt-4">
+                  <AudioPlayer 
+                    audioUrl={audioUrl}
+                    onEnded={() => console.log('[ChatContainer] Audio ended')}
+                    onError={(err) => console.error('[ChatContainer] Audio player error:', err)}
+                  />
+                </div>
+              )}
+            </>
           )}
 
+          {/* Initial loading state */}
           {showLoading && (
             <LoadingIndicator />
           )}
@@ -56,7 +107,8 @@ export function ChatContainer() {
             onSubmit={handleSubmit}
             input={input}
             setInput={setInput}
-            isLoading={isLoading}
+            isLoading={isLoading || isGeneratingVoice}
+            disabled={isGeneratingVoice}
           />
         </div>
       </footer>
