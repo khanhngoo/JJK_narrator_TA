@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Play, Pause, RotateCcw, Volume2, VolumeX } from 'lucide-react'
+import { Play, Pause, RotateCcw, Volume2, VolumeX, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAudioPlayer } from '@/hooks/useAudioPlayer'
 import { cn } from '@/lib/utils'
@@ -10,10 +10,11 @@ interface AudioPlayerProps {
   audioUrl: string
   onEnded?: () => void
   onError?: (error: Error) => void
+  onShare?: () => void
   className?: string
 }
 
-export function AudioPlayer({ audioUrl, onEnded, onError, className }: AudioPlayerProps) {
+export function AudioPlayer({ audioUrl, onEnded, onError, onShare, className }: AudioPlayerProps) {
   const {
     isPlaying,
     currentTime,
@@ -123,6 +124,19 @@ export function AudioPlayer({ audioUrl, onEnded, onError, className }: AudioPlay
             aria-label="Volume"
           />
         </div>
+
+        {/* Share button */}
+        {onShare && (
+          <Button
+            onClick={onShare}
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 text-muted-foreground hover:text-foreground"
+            aria-label="Share this narration"
+          >
+            <Share2 className="h-5 w-5" />
+          </Button>
+        )}
       </div>
     </div>
   )
