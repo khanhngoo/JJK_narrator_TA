@@ -1,49 +1,26 @@
+// Fish Speech TTS - replaces ElevenLabs
+// Connects to your self-hosted Fish Speech server
+
 import { NextRequest, NextResponse } from 'next/server'
-import { getElevenLabsClient } from '@/lib/voice/elevenlabs'
-import { getNarratorVoiceId, getNarratorModel } from '@/lib/voice/voice-config'
 import { getCachedAudio, setCachedAudio } from '@/lib/voice/cache'
 
-export const maxDuration = 60 // Voice generation can take longer
+export const maxDuration = 60
 
-// Helper to consume readable stream and return Blob
-async function streamToBlob(stream: ReadableStream<Uint8Array>): Promise<Blob> {
-  const reader = stream.getReader()
-  const chunks: Uint8Array[] = []
-  
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    if (value) chunks.push(value)
-  }
-  
-  // Calculate total size
-  const totalSize = chunks.reduce((acc, chunk) => acc + chunk.length, 0)
-  
-  // Combine all chunks into a single Uint8Array
-  const combined = new Uint8Array(totalSize)
-  let offset = 0
-  for (const chunk of chunks) {
-    combined.set(chunk, offset)
-    offset += chunk.length
-  }
-  
-  // Create blob from the combined buffer (as ArrayBuffer)
-  return new Blob([combined.buffer as ArrayBuffer], { type: 'audio/mpeg' })
-}
+const FISH_SPEECH_URL = process.env.FISH_SPEECH_URL || 'http://localhost:8080'
+const DEFAULT_VOICE = process.env.FISH_SPEECH_VOICE || 'jjk_narrator'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { text, regenerate = false } = body
-    
+    const { text, regenerate = false, voice = DEFAULT_VOICE } = body
+
     if (!text || typeof text !== 'string') {
       return NextResponse.json(
         { error: 'Text is required' },
         { status: 400 }
       )
     }
-    
-    // Limit text length to prevent abuse
+
     if (text.length > 10000) {
       return NextResponse.json(
         { error: 'Text too long. Maximum 10000 characters.' },
@@ -59,55 +36,56 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Generate new audio
-    const client = getElevenLabsClient()
-    const voiceId = getNarratorVoiceId()
-    const model = getNarratorModel()
-    
-    console.log('[Voice API] Generating audio for text length:', text.length, 'Voice:', voiceId, 'Model:', model)
-    
-    // Generate audio using ElevenLabs SDK
-    // The convert method returns a ReadableStream<Uint8Array>
-    const audioStream = await client.textToSpeech.convert(voiceId, {
-      text,
-      modelId: model,
-      outputFormat: 'mp3_44100_128',
-    }) as ReadableStream<Uint8Array>
-    
-    // Convert stream to blob
-    const blob = await streamToBlob(audioStream)
-    
-    // Cache the result
-    const audioUrl = setCachedAudio(text, blob)
-    
-    console.log('[Voice API] Audio generated successfully. Size:', blob.size, 'bytes')
-    
-    return NextResponse.json({ 
+    console.log('[Voice API] Generating audio via Fish Speech:', {
+      textLength: text.length,
+      voice,
+      server: FISH_SPEECH_URL
+    })
+
+    // Call Fish Speech API
+    const response = await fetch(`${FISH_SPEECH_URL}/v1/tts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text,
+        voice,
+        speed: 1.0,
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      console.error('[Voice API] Fish Speech error:', error)
+      throw new Error(`Fish Speech API error: ${response.status}`)
+    }
+
+    // Get audio as blob
+    const audioBlob = await response.blob()
+
+    // Create blob URL for client
+    const audioUrl = setCachedAudio(text, audioBlob)
+
+    console.log('[Voice API] Audio generated successfully. Size:', audioBlob.size, 'bytes')
+
+    return NextResponse.json({
       audioUrl,
       cached: false,
-      duration: null, // Could calculate from blob if needed
+      duration: null,
     })
-    
   } catch (error) {
     console.error('[Voice API] Error:', error)
-    
-    // Determine error type for client
+
     if (error instanceof Error) {
-      if (error.message.includes('ELEVENLABS_API_KEY')) {
+      if (error.message.includes('fetch failed') || error.message.includes('NetworkError')) {
         return NextResponse.json(
-          { error: 'Voice service not configured. Please set ELEVENLABS_API_KEY.' },
-          { status: 500 }
-        )
-      }
-      
-      if (error.message.includes('quota') || error.message.includes('credits')) {
-        return NextResponse.json(
-          { error: 'Voice service quota exceeded. Please try again later.' },
-          { status: 429 }
+          { error: 'TTS server not reachable. Please check FISH_SPEECH_URL configuration.' },
+          { status: 503 }
         )
       }
     }
-    
+
     return NextResponse.json(
       { error: 'Failed to generate voice. Please try again.' },
       { status: 500 }
